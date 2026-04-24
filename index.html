@@ -262,6 +262,7 @@
             Asset,
             Entity,
             Color,
+            Ray,
             Vec3,
             BoundingBox,
             StandardMaterial,
@@ -275,6 +276,7 @@
         const loadingDiv = document.getElementById('loading');
         const progressDiv = document.getElementById('progress');
         const errorDiv = document.getElementById('error');
+        const xrControlsDiv = document.getElementById('xr-controls');
         const vrButton = document.getElementById('vr-button');
         const passthroughButton = document.getElementById('passthrough-button');
         const exitXrButton = document.getElementById('exit-xr-button');
@@ -356,6 +358,7 @@
                 const xrArType = 'immersive-ar';
                 const xrSpaceType = 'local-floor';
                 const xrSecureContext = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                let syncXrSceneUi = () => {};
 
                 const applyCameraBackgroundForMode = () => {
                     camera.camera.clearColor = app.xr.active && app.xr.type === xrArType
@@ -368,6 +371,8 @@
                     const vrAvailable = xrSupported && app.xr.isAvailable(xrVrType);
                     const arAvailable = xrSupported && app.xr.isAvailable(xrArType);
                     const activeType = app.xr.active ? app.xr.type : null;
+
+                    xrControlsDiv.style.display = app.xr.active ? 'none' : 'flex';
 
                     vrButton.disabled = !vrAvailable && activeType !== xrVrType;
                     passthroughButton.disabled = !arAvailable && activeType !== xrArType;
@@ -465,16 +470,19 @@
                 app.xr.on('start', () => {
                     applyCameraBackgroundForMode();
                     updateXrUi();
+                    syncXrSceneUi();
                 });
                 app.xr.on('end', () => {
                     applyCameraBackgroundForMode();
                     updateOrbitCamera();
                     updateXrUi();
+                    syncXrSceneUi();
                 });
                 app.xr.on('error', (err) => {
                     console.error('XR error:', err);
                     applyCameraBackgroundForMode();
                     updateXrUi();
+                    syncXrSceneUi();
                 });
 
                 updateXrUi();
@@ -1191,6 +1199,65 @@
                     // Keyboard controls
                     let rulerVisible = true;
                     let rosePlotVisible = true;
+                    let refreshAllLabelTextures = () => {};
+                    let updateXrMenuButtonVisuals = () => {};
+                    let refreshXrMenuButtonLabels = () => {};
+                    let xrMenuEntity = null;
+                    let xrMenuHoverButton = null;
+                    const xrMenuButtons = [];
+                    const xrRay = new Ray();
+
+                    const setRulerVisible = (visible = !rulerVisible) => {
+                        rulerVisible = visible;
+                        if (rulerEntity) {
+                            rulerEntity.enabled = rulerVisible;
+                        }
+                        for (const labelEntity of window.rulerLabelEntities) {
+                            labelEntity.enabled = rulerVisible;
+                        }
+                        window.rulerVisible = rulerVisible;
+                        refreshXrMenuButtonLabels();
+                        updateXrMenuButtonVisuals();
+                        console.log('Depth ruler:', rulerVisible ? 'VISIBLE' : 'HIDDEN');
+                    };
+
+                    const setRosePlotVisible = (visible = !rosePlotVisible) => {
+                        rosePlotVisible = visible;
+                        if (rosePlotEntity) {
+                            rosePlotEntity.enabled = rosePlotVisible;
+                        }
+                        for (const labelEntity of window.roseLabelEntities) {
+                            labelEntity.enabled = rosePlotVisible;
+                        }
+                        window.rosePlotVisible = rosePlotVisible;
+                        refreshXrMenuButtonLabels();
+                        updateXrMenuButtonVisuals();
+                        console.log('Rose plot:', rosePlotVisible ? 'VISIBLE' : 'HIDDEN');
+                    };
+
+                    const toggleTheme = () => {
+                        currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                        document.body.classList.toggle('light-theme');
+                        applyCameraBackgroundForMode();
+                        window.currentTheme = currentTheme;
+                        refreshAllLabelTextures();
+                        refreshXrMenuButtonLabels();
+                        updateXrMenuButtonVisuals();
+                        console.log('Theme:', currentTheme.toUpperCase());
+                    };
+
+                    const moveRuler = (delta) => {
+                        if (!(rulerEntity && window.rulerConfig)) return;
+
+                        const maxRulerX = window.objectCenterX;
+                        window.rulerConfig.rulerX = Math.min(maxRulerX, window.rulerConfig.rulerX + delta);
+                        window.rulerX = window.rulerConfig.rulerX;
+                        if (window.updateRulerTicks) {
+                            window.updateRulerTicks();
+                            createRulerLabels();
+                        }
+                        console.log('Ruler X:', window.rulerConfig.rulerX.toFixed(3));
+                    };
                     
                     window.addEventListener('keydown', (e) => {
                         if (e.key === 'f' || e.key === 'F') {
@@ -1213,40 +1280,11 @@
                             lastTime = performance.now();
                             console.log('Model-only rotation:', modelOnlyRotate ? 'ON' : 'OFF');
                         } else if (e.key === 'd' || e.key === 'D') {
-                            // Toggle depth ruler visibility
-                            rulerVisible = !rulerVisible;
-                            if (rulerEntity) {
-                                rulerEntity.enabled = rulerVisible;
-                            }
-                            // Toggle 3D label visibility
-                            for (const labelEntity of window.rulerLabelEntities) {
-                                labelEntity.enabled = rulerVisible;
-                            }
-                            window.rulerVisible = rulerVisible;
-                            console.log('Depth ruler:', rulerVisible ? 'VISIBLE' : 'HIDDEN');
+                            setRulerVisible();
                         } else if (e.key === 'o' || e.key === 'O') {
-                            // Toggle rose plot visibility
-                            rosePlotVisible = !rosePlotVisible;
-                            if (rosePlotEntity) {
-                                rosePlotEntity.enabled = rosePlotVisible;
-                            }
-                            // Toggle 3D label visibility
-                            for (const labelEntity of window.roseLabelEntities) {
-                                labelEntity.enabled = rosePlotVisible;
-                            }
-                            window.rosePlotVisible = rosePlotVisible;
-                            console.log('Rose plot:', rosePlotVisible ? 'VISIBLE' : 'HIDDEN');
+                            setRosePlotVisible();
                         } else if (e.key === 't' || e.key === 'T') {
-                            // Toggle theme
-                            currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-                            document.body.classList.toggle('light-theme');
-                            
-                            // Update camera background color
-                            applyCameraBackgroundForMode();
-                            
-                            // Store theme for label rendering
-                            window.currentTheme = currentTheme;
-                            console.log('Theme:', currentTheme.toUpperCase());
+                            toggleTheme();
                         } else if (e.key === 'v' || e.key === 'V') {
                             requestXrMode(xrVrType);
                         } else if (e.key === 'p' || e.key === 'P') {
@@ -1260,16 +1298,7 @@
                             if (rulerEntity && window.rulerConfig) {
                                 const step = window.rulerStep || 0.05;
                                 const delta = e.key === '[' ? step : -step;
-                                // Clamp: ruler must stay on the left side (negative X from center), never cross center
-                                const minRulerX = -(Infinity);
-                                const maxRulerX = window.objectCenterX;  // Cannot go past model center
-                                window.rulerConfig.rulerX = Math.min(maxRulerX, window.rulerConfig.rulerX + delta);
-                                window.rulerX = window.rulerConfig.rulerX;
-                                if (window.updateRulerTicks) {
-                                    window.updateRulerTicks();
-                                    createRulerLabels();
-                                }
-                                console.log('Ruler X:', window.rulerConfig.rulerX.toFixed(3));
+                                moveRuler(delta);
                             }
                         } else if (e.key === ' ') {
                             // Toggle key bindings helper
@@ -1375,6 +1404,236 @@
                         
                         return labelEntity;
                     };
+
+                    const updateTextLabelTexture = (labelEntity) => {
+                        if (!(labelEntity && labelEntity.imageEntity && labelEntity.textContent)) return;
+
+                        const texture = createTextTexture(
+                            labelEntity.textContent,
+                            labelEntity.fontSize || 24,
+                            labelEntity.fontFamily || 'monospace',
+                            window.currentTheme === 'light'
+                        );
+                        labelEntity.textTexture = texture;
+                        labelEntity.imageEntity.element.texture = texture;
+                    };
+
+                    refreshAllLabelTextures = () => {
+                        for (const labelEntity of window.rulerLabelEntities) {
+                            updateTextLabelTexture(labelEntity);
+                        }
+                        for (const labelEntity of window.roseLabelEntities) {
+                            updateTextLabelTexture(labelEntity);
+                        }
+                        for (const buttonInfo of xrMenuButtons) {
+                            if (buttonInfo.labelEntity) {
+                                updateTextLabelTexture(buttonInfo.labelEntity);
+                            }
+                        }
+                    };
+
+                    const createAttachedTextLabel = (text, localPosition, fontSize, fontFamily, labelHeight, parentEntity) => {
+                        const texture = createTextTexture(text, fontSize, fontFamily, window.currentTheme === 'light');
+                        const textureWidth = 512;
+                        const textureHeight = 128;
+                        const worldScale = labelHeight / textureHeight;
+
+                        const labelEntity = new Entity('xrMenuLabel');
+                        labelEntity.addComponent('screen', {
+                            screenSpace: false,
+                            resolution: [textureWidth, textureHeight],
+                            referenceResolution: [textureWidth, textureHeight],
+                            priority: 130
+                        });
+                        labelEntity.setLocalPosition(localPosition.x, localPosition.y, localPosition.z);
+                        labelEntity.setLocalScale(worldScale, worldScale, worldScale);
+                        labelEntity.setLocalEulerAngles(0, 180, 0);
+
+                        const imageEntity = new Entity('xrMenuLabelImage');
+                        imageEntity.addComponent('element', {
+                            type: 'image',
+                            anchor: [0.5, 0.5, 0.5, 0.5],
+                            pivot: [0.5, 0.5],
+                            width: textureWidth,
+                            height: textureHeight,
+                            opacity: 1,
+                            texture: texture,
+                            useInput: false,
+                            layers: [LAYERID_WORLD],
+                            drawOrder: 220
+                        });
+                        labelEntity.addChild(imageEntity);
+
+                        labelEntity.textTexture = texture;
+                        labelEntity.imageEntity = imageEntity;
+                        labelEntity.textContent = text;
+                        labelEntity.fontSize = fontSize;
+                        labelEntity.fontFamily = fontFamily;
+
+                        parentEntity.addChild(labelEntity);
+                        return labelEntity;
+                    };
+
+                    const createXrButtonMaterial = () => {
+                        const material = new StandardMaterial();
+                        material.useLighting = false;
+                        material.update();
+                        return material;
+                    };
+
+                    updateXrMenuButtonVisuals = () => {
+                        for (const buttonInfo of xrMenuButtons) {
+                            const material = buttonInfo.material;
+                            const isHovered = buttonInfo === xrMenuHoverButton;
+                            const isLight = window.currentTheme === 'light';
+
+                            let baseColor;
+                            if (isHovered) {
+                                baseColor = isLight ? [0.10, 0.48, 0.92] : [0.14, 0.56, 0.98];
+                            } else {
+                                baseColor = isLight ? [0.90, 0.92, 0.95] : [0.16, 0.18, 0.22];
+                            }
+
+                            material.diffuse.set(baseColor[0], baseColor[1], baseColor[2]);
+                            material.emissive.set(baseColor[0], baseColor[1], baseColor[2]);
+                            material.opacity = 0.96;
+                            material.update();
+                        }
+                    };
+
+                    refreshXrMenuButtonLabels = () => {
+                        for (const buttonInfo of xrMenuButtons) {
+                            if (buttonInfo.getLabel) {
+                                buttonInfo.labelEntity.textContent = buttonInfo.getLabel();
+                                updateTextLabelTexture(buttonInfo.labelEntity);
+                            }
+                        }
+                    };
+
+                    const ensureXrMenu = () => {
+                        if (xrMenuEntity) return;
+
+                        xrMenuEntity = new Entity('xrMenu');
+                        camera.addChild(xrMenuEntity);
+                        xrMenuEntity.setLocalPosition(0, 0.04, -1.15);
+
+                        const panelEntity = new Entity('xrMenuPanel');
+                        panelEntity.addComponent('render', { type: 'box' });
+                        panelEntity.setLocalPosition(0, 0.01, 0.02);
+                        panelEntity.setLocalScale(0.42, 0.44, 0.01);
+                        const panelMaterial = createXrButtonMaterial();
+                        panelMaterial.diffuse.set(0.05, 0.06, 0.08);
+                        panelMaterial.emissive.set(0.05, 0.06, 0.08);
+                        panelMaterial.opacity = 0.92;
+                        panelMaterial.update();
+                        panelEntity.render.meshInstances[0].material = panelMaterial;
+                        xrMenuEntity.addChild(panelEntity);
+
+                        const createXrMenuButton = (id, localY, getLabel, onSelect) => {
+                            const buttonEntity = new Entity(`xrMenuButton-${id}`);
+                            buttonEntity.addComponent('render', { type: 'box' });
+                            buttonEntity.setLocalPosition(0, localY, 0.03);
+                            buttonEntity.setLocalScale(0.34, 0.075, 0.025);
+                            const material = createXrButtonMaterial();
+                            buttonEntity.render.meshInstances[0].material = material;
+                            xrMenuEntity.addChild(buttonEntity);
+
+                            const labelEntity = createAttachedTextLabel(
+                                getLabel(),
+                                new Vec3(0, localY, 0.055),
+                                26,
+                                'sans-serif',
+                                0.07,
+                                xrMenuEntity
+                            );
+
+                            const buttonInfo = {
+                                id,
+                                entity: buttonEntity,
+                                material,
+                                labelEntity,
+                                getLabel,
+                                onSelect
+                            };
+                            xrMenuButtons.push(buttonInfo);
+                            return buttonInfo;
+                        };
+
+                        createXrMenuButton('ruler', 0.13, () => `Ruler: ${rulerVisible ? 'On' : 'Off'}`, () => setRulerVisible());
+                        createXrMenuButton('rose', 0.04, () => `Rose: ${rosePlotVisible ? 'On' : 'Off'}`, () => setRosePlotVisible());
+                        createXrMenuButton('theme', -0.05, () => `Theme: ${currentTheme === 'light' ? 'Light' : 'Dark'}`, () => toggleTheme());
+                        createXrMenuButton('exit', -0.14, () => 'Exit XR', () => app.xr.end());
+
+                        updateXrMenuButtonVisuals();
+                        refreshXrMenuButtonLabels();
+                    };
+
+                    const pickXrMenuButton = (inputSource) => {
+                        if (!(xrMenuEntity && xrMenuEntity.enabled && inputSource)) return null;
+
+                        xrRay.set(inputSource.getOrigin(), inputSource.getDirection());
+
+                        let bestButton = null;
+                        let bestDistanceSq = Infinity;
+                        for (const buttonInfo of xrMenuButtons) {
+                            const meshInstance = buttonInfo.entity.render?.meshInstances?.[0];
+                            if (!meshInstance || !meshInstance.aabb.intersectsRay(xrRay)) continue;
+
+                            const buttonPos = buttonInfo.entity.getPosition();
+                            const rayOrigin = inputSource.getOrigin();
+                            const dx = buttonPos.x - rayOrigin.x;
+                            const dy = buttonPos.y - rayOrigin.y;
+                            const dz = buttonPos.z - rayOrigin.z;
+                            const distanceSq = dx * dx + dy * dy + dz * dz;
+
+                            if (distanceSq < bestDistanceSq) {
+                                bestDistanceSq = distanceSq;
+                                bestButton = buttonInfo;
+                            }
+                        }
+
+                        return bestButton;
+                    };
+
+                    const updateXrMenuHover = () => {
+                        if (!(app.xr.active && xrMenuEntity && xrMenuEntity.enabled)) {
+                            if (xrMenuHoverButton) {
+                                xrMenuHoverButton = null;
+                                updateXrMenuButtonVisuals();
+                            }
+                            return;
+                        }
+
+                        let hoveredButton = null;
+                        for (const inputSource of app.xr.input.inputSources) {
+                            const candidate = pickXrMenuButton(inputSource);
+                            if (candidate) {
+                                hoveredButton = candidate;
+                                break;
+                            }
+                        }
+
+                        if (hoveredButton !== xrMenuHoverButton) {
+                            xrMenuHoverButton = hoveredButton;
+                            updateXrMenuButtonVisuals();
+                        }
+                    };
+
+                    app.xr.input.on('select', (inputSource) => {
+                        const buttonInfo = pickXrMenuButton(inputSource);
+                        if (buttonInfo) {
+                            buttonInfo.onSelect();
+                        }
+                    });
+
+                    syncXrSceneUi = () => {
+                        ensureXrMenu();
+                        xrMenuEntity.enabled = app.xr.active;
+                        xrMenuHoverButton = null;
+                        refreshXrMenuButtonLabels();
+                        updateXrMenuButtonVisuals();
+                    };
+                    syncXrSceneUi();
                     
                     // Function to update label to face camera (billboard behavior)
                     const updateLabelBillboard = (labelEntity, cameraPos) => {
@@ -1474,6 +1733,7 @@
                         
                         // Update 3D label billboards every frame
                         updateLabels3D();
+                        updateXrMenuHover();
                         
                         requestAnimationFrame(animateRotation);
                     };
